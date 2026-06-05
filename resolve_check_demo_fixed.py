@@ -1,4 +1,4 @@
-"""Resolve-check demo with the SQL injection fixed correctly."""
+
 
 from __future__ import annotations
 
