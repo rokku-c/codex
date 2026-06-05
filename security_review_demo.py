@@ -1,5 +1,3 @@
-
-
 import os
 import sqlite3
 import subprocess
@@ -8,41 +6,50 @@ from pathlib import Path
 
 DB_PATH = "demo.db"
 
-# Finding 1: hardcoded secret
-ADMIN_TOKEN = "admin-token-123456"
+# Fix 1: Use environment variable for admin token instead of hardcoding
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "default-admin-token-change-me")
 
 
 def find_user_by_name(username: str):
     """
-    Finding 2: SQL injection.
-    User input is directly concatenated into SQL.
+    Fixed: SQL injection.
+    Using parameterized query and proper connection management.
     """
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
 
-    query = "SELECT id, username, role FROM users WHERE username = '" + username + "'"
-    cursor.execute(query)
+        query = "SELECT id, username, role FROM users WHERE username = ?"
+        cursor.execute(query, (username,))
 
-    return cursor.fetchall()
+        return cursor.fetchall()
 
 
 def export_file(filename: str) -> str:
     """
-    Finding 3: path traversal.
-    User-controlled filename is joined into a filesystem path without validation.
+    Fixed: path traversal.
+    Validating that the resolved path is within the base directory.
     """
     base_dir = Path("./exports")
-    file_path = base_dir / filename
+    file_path = (base_dir / filename).resolve()
+
+    # Check that the resolved path is still within the base directory
+    if not file_path.is_relative_to(base_dir.resolve()):
+        raise ValueError(f"Invalid path: {filename} attempts to traverse outside allowed directory")
 
     return file_path.read_text(encoding="utf-8")
 
 
 def ping_host(host: str) -> str:
     """
-    Finding 4: command injection.
-    User-controlled input is executed through shell=True.
+    Fixed: command injection.
+    Using list format to prevent shell injection and validating input format.
     """
-    result = subprocess.check_output("ping -c 1 " + host, shell=True, text=True)
+    # Basic validation to ensure host is a valid IP address or domain name
+    import re
+    if not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9\-_.]*$', host):
+        raise ValueError(f"Invalid host format: {host}")
+
+    result = subprocess.check_output(["ping", "-c", "1", host], text=True)
     return result
 
 
@@ -58,4 +65,3 @@ if __name__ == "__main__":
     print(export_file("report.txt"))
     print(ping_host("127.0.0.1"))
     print(is_admin(os.getenv("ADMIN_TOKEN", "")))
-PY
