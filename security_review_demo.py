@@ -1,5 +1,5 @@
 
-
+import ipaddress
 import os
 import sqlite3
 import subprocess
@@ -7,50 +7,63 @@ from pathlib import Path
 
 
 DB_PATH = "demo.db"
-
-# Finding 1: hardcoded secret
-ADMIN_TOKEN = "admin-token-123456"
+EXPORT_ROOT = Path("./exports").resolve()
 
 
 def find_user_by_name(username: str):
     """
-    Finding 2: SQL injection.
-    User input is directly concatenated into SQL.
+    Fix: use parameterized SQL instead of string concatenation.
     """
     conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-
-    query = "SELECT id, username, role FROM users WHERE username = '" + username + "'"
-    cursor.execute(query)
-
-    return cursor.fetchall()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT id, username, role FROM users WHERE username = ?",
+            (username,),
+        )
+        return cursor.fetchall()
+    finally:
+        conn.close()
 
 
 def export_file(filename: str) -> str:
     """
-    Finding 3: path traversal.
-    User-controlled filename is joined into a filesystem path without validation.
+    Fix: resolve the requested path and ensure it stays inside EXPORT_ROOT.
     """
-    base_dir = Path("./exports")
-    file_path = base_dir / filename
+    candidate = (EXPORT_ROOT / filename).resolve()
 
-    return file_path.read_text(encoding="utf-8")
+    try:
+        candidate.relative_to(EXPORT_ROOT)
+    except ValueError as exc:
+        raise ValueError("invalid export path") from exc
+
+    if not candidate.is_file():
+        raise FileNotFoundError(filename)
+
+    return candidate.read_text(encoding="utf-8")
 
 
 def ping_host(host: str) -> str:
     """
-    Finding 4: command injection.
-    User-controlled input is executed through shell=True.
+    Fix: validate the host and avoid shell=True.
     """
-    result = subprocess.check_output("ping -c 1 " + host, shell=True, text=True)
-    return result
+    ipaddress.ip_address(host)
+
+    return subprocess.check_output(
+        ["ping", "-c", "1", host],
+        text=True,
+    )
 
 
 def is_admin(token: str) -> bool:
     """
-    Uses the hardcoded token above.
+    Fix: read the expected admin token from environment instead of hardcoding it.
     """
-    return token == ADMIN_TOKEN
+    expected_token = os.getenv("ADMIN_TOKEN")
+    if not expected_token:
+        return False
+
+    return token == expected_token
 
 
 if __name__ == "__main__":
@@ -58,4 +71,3 @@ if __name__ == "__main__":
     print(export_file("report.txt"))
     print(ping_host("127.0.0.1"))
     print(is_admin(os.getenv("ADMIN_TOKEN", "")))
-PY
